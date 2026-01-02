@@ -1,9 +1,12 @@
 export interface User {
   id: string;
+  email: string;
   name: string;
   avatar: string;
-  goalDays: number; // e.g., 6 days a week
-  pairingCode: string; // The code to share
+  goalDays: number;
+  pairingCode: string;
+  partnerId?: string | null; // ID of the linked partner
+  wagerAmount: number;
 }
 
 export interface WorkoutLog {
@@ -21,15 +24,4 @@ export interface WeekState {
   wagerAmount: number; // e.g., 20 ($20)
 }
 
-export enum BattleStatus {
-  WINNING = 'WINNING',
-  LOSING = 'LOSING',
-  TIED = 'TIED'
-}
-
-export interface RefereeResponse {
-  analysis: string;
-  tone: 'motivational' | 'roast' | 'neutral';
-}
-
-export type OnboardingStep = 'PROFILE' | 'PARTNER' | 'COMPLETED';
+export type OnboardingStep = 'AUTH' | 'PROFILE' | 'PARTNER' | 'COMPLETED';

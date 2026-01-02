@@ -10,8 +10,8 @@ import {
   AlertTriangle,
   Bot,
   Bell,
-  CheckCircle2,
-  Clock
+  Clock,
+  Settings
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -22,12 +22,13 @@ import {
   ResponsiveContainer
 } from 'recharts';
 
-import { generateMockLogs } from './services/mockData';
 import { getRefereeCommentary } from './services/geminiService';
+import { backend } from './services/backend';
 import { User, WorkoutLog, WeekState, OnboardingStep } from './types';
 import Heatmap from './components/Heatmap';
 import LogModal from './components/LogModal';
 import Onboarding from './components/Onboarding';
+import SettingsModal from './components/SettingsModal';
 
 // --- Components ---
 
@@ -68,9 +69,10 @@ const ReminderBanner = ({ hasLoggedToday, userName }: { hasLoggedToday: boolean,
 
 function App() {
   // Auth & Onboarding State
-  const [appState, setAppState] = useState<OnboardingStep>('PROFILE'); // Start at Onboarding for demo
+  const [appState, setAppState] = useState<OnboardingStep>('AUTH');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [partner, setPartner] = useState<User | null>(null);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   
   // App Data
   const [logs, setLogs] = useState<WorkoutLog[]>([]);
@@ -79,22 +81,130 @@ function App() {
     wagerAmount: 20
   });
   
+  // UI State
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [aiCommentary, setAiCommentary] = useState<string>("");
   const [isLoadingAi, setIsLoadingAi] = useState(false);
 
-  // Handle Onboarding Completion
-  const handleOnboardingComplete = (user: User, partnerUser: User, wager: number) => {
+  // --- Initialization ---
+  
+  useEffect(() => {
+    const initSession = async () => {
+      setIsLoadingAuth(true);
+      try {
+        const user = await backend.getCurrentUser();
+        
+        if (user) {
+          setCurrentUser(user);
+          if (user.partnerId) {
+            const partnerData = await backend.getUserById(user.partnerId);
+            if (partnerData) {
+              setPartner(partnerData);
+              setAppState('COMPLETED');
+            } else {
+              setAppState('PARTNER');
+            }
+          } else {
+            setAppState(user.name ? 'PARTNER' : 'PROFILE');
+          }
+        } else {
+          setAppState('AUTH');
+        }
+      } catch (err) {
+        console.error("Session init failed", err);
+      } finally {
+        setIsLoadingAuth(false);
+      }
+    };
+    initSession();
+  }, []);
+
+  // --- Real-Time Sync Subscription ---
+  
+  useEffect(() => {
+    if (appState === 'COMPLETED' && currentUser && partner) {
+      // Subscribe to updates for BOTH users
+      const unsubscribe = backend.subscribeToLogs(
+        [currentUser.id, partner.id], 
+        (updatedLogs) => {
+          setLogs(updatedLogs);
+        }
+      );
+      return () => unsubscribe();
+    }
+  }, [appState, currentUser, partner]);
+
+
+  // --- Handlers ---
+
+  const handleOnboardingComplete = (user: User, partnerUser: User) => {
     setCurrentUser(user);
     setPartner(partnerUser);
-    setWeekState(prev => ({ ...prev, wagerAmount: wager }));
-    
-    // Generate initial logs for them
-    setLogs(generateMockLogs(90, [user.id, partnerUser.id]));
+    setWeekState(prev => ({ ...prev, wagerAmount: user.wagerAmount }));
     setAppState('COMPLETED');
   };
 
-  // --- Derived State (Stats) ---
+  const handleSignOut = async () => {
+    await backend.signOut();
+    setCurrentUser(null);
+    setPartner(null);
+    setLogs([]);
+    setAppState('AUTH');
+    setIsSettingsOpen(false);
+  };
+
+  const handleUnlink = async () => {
+    if (!currentUser) return;
+    await backend.unlinkPartner(currentUser.id);
+    
+    // Refresh user state
+    const updatedUser = await backend.getUserById(currentUser.id);
+    setCurrentUser(updatedUser);
+    setPartner(null);
+    setAppState('PARTNER'); // Send back to partner selection
+    setIsSettingsOpen(false);
+  };
+
+  const handleAddWorkout = async (activity: string, duration: number, photoUrl: string) => {
+    if (!currentUser) return;
+    
+    const newLog: WorkoutLog = {
+      id: Date.now().toString(),
+      userId: currentUser.id,
+      date: new Date().toISOString().split('T')[0],
+      activity,
+      durationMinutes: duration,
+      photoUrl,
+      verified: true
+    };
+    
+    // Optimistic UI Update (optional, since the listener will catch it fast)
+    // setLogs(prev => [newLog, ...prev]);
+
+    // Send to Firebase
+    await backend.addLog(newLog);
+  };
+
+  const fetchAiInsights = async () => {
+    if (!currentUser || !partner) return;
+    setIsLoadingAi(true);
+    const comment = await getRefereeCommentary(weekState, [currentUser, partner], currentWeekLogs, new Date());
+    setAiCommentary(comment);
+    setIsLoadingAi(false);
+  };
+
+  // Auto-fetch AI on load
+  useEffect(() => {
+    if (appState === 'COMPLETED' && logs.length > 0 && !aiCommentary) {
+       const timer = setTimeout(() => fetchAiInsights(), 1500);
+       return () => clearTimeout(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logs, appState]);
+
+
+  // --- Derived State ---
 
   const currentWeekLogs = useMemo(() => {
     const now = new Date();
@@ -127,50 +237,6 @@ function App() {
     return { count, goal, debt, logs: userLogs };
   }, [currentWeekLogs, partner, weekState]);
 
-  // --- Handlers ---
-
-  const handleAddWorkout = (activity: string, duration: number, photoUrl: string) => {
-    if (!currentUser) return;
-    
-    const newLog: WorkoutLog = {
-      id: Date.now().toString(),
-      userId: currentUser.id,
-      date: new Date().toISOString().split('T')[0],
-      activity,
-      durationMinutes: duration,
-      photoUrl,
-      verified: true
-    };
-    setLogs(prev => [newLog, ...prev]);
-  };
-
-  const fetchAiInsights = async () => {
-    if (!currentUser || !partner) return;
-    setIsLoadingAi(true);
-    // Note: We need to pass the real users here, not mock ones
-    const comment = await getRefereeCommentary(weekState, [currentUser, partner], currentWeekLogs, new Date());
-    setAiCommentary(comment);
-    setIsLoadingAi(false);
-  };
-
-  // Auto-fetch AI on load
-  useEffect(() => {
-    if (appState === 'COMPLETED' && logs.length > 0 && !aiCommentary) {
-       const timer = setTimeout(() => fetchAiInsights(), 1500);
-       return () => clearTimeout(timer);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [logs, appState]);
-
-
-  // --- Render Flow ---
-
-  if (appState !== 'COMPLETED') {
-    return <Onboarding onComplete={handleOnboardingComplete} />;
-  }
-
-  if (!currentUser || !partner || !user1Stats || !user2Stats) return null;
-
   // --- Helpers ---
 
   const getProgressColor = (current: number, goal: number) => {
@@ -178,6 +244,29 @@ function App() {
     if (current >= goal / 2) return 'bg-yellow-500';
     return 'bg-rose-500';
   };
+
+  // --- Render Flow ---
+
+  if (isLoadingAuth) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (appState !== 'COMPLETED' || !currentUser) {
+    return (
+      <Onboarding 
+        initialStep={appState} 
+        currentUser={currentUser}
+        onUpdateUser={setCurrentUser}
+        onComplete={handleOnboardingComplete} 
+      />
+    );
+  }
+
+  if (!partner || !user1Stats || !user2Stats) return null;
 
   return (
     <div className="min-h-screen bg-slate-950 pb-20 md:pb-0">
@@ -195,9 +284,17 @@ function App() {
           </div>
           
           <div className="flex items-center gap-4">
+             {/* Settings Button */}
+             <button 
+              onClick={() => setIsSettingsOpen(true)}
+              className="text-slate-400 hover:text-white transition-colors"
+             >
+               <Settings size={20} />
+             </button>
+
              {/* Simple User Profile Badge */}
              <div className="flex items-center gap-3 bg-slate-800 rounded-full pl-3 pr-1 py-1 border border-slate-700">
-                <span className="text-xs text-slate-300 font-medium">Hi, {currentUser.name}</span>
+                <span className="text-xs text-slate-300 font-medium hidden sm:inline">Hi, {currentUser.name}</span>
                 <div className="w-8 h-8 rounded-full overflow-hidden">
                   <img src={currentUser.avatar} alt="Me" className="w-full h-full object-cover" />
                 </div>
@@ -469,6 +566,15 @@ function App() {
         onClose={() => setIsLogModalOpen(false)}
         currentUser={currentUser}
         onSubmit={handleAddWorkout}
+      />
+      
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        currentUser={currentUser}
+        partner={partner}
+        onUnlink={handleUnlink}
+        onSignOut={handleSignOut}
       />
 
     </div>

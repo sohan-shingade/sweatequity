@@ -3,17 +3,21 @@ import { User, WorkoutLog } from '../types';
 export const MOCK_USERS: User[] = [
   {
     id: 'u1',
+    email: 'alex@example.com',
     name: 'Alex',
     avatar: 'https://picsum.photos/seed/alex/150/150',
     goalDays: 5,
-    pairingCode: 'ALX-99'
+    pairingCode: 'ALX-99',
+    wagerAmount: 20
   },
   {
     id: 'u2',
+    email: 'jordan@example.com',
     name: 'Jordan',
     avatar: 'https://picsum.photos/seed/jordan/150/150',
     goalDays: 5,
-    pairingCode: 'JRD-77'
+    pairingCode: 'JRD-77',
+    wagerAmount: 20
   }
 ];
 
@@ -24,10 +28,12 @@ export const getMockPartner = (enteredCode: string): User => {
   // For demo, we just return "Jordan" with a slight variation if needed
   return {
     id: 'u2',
+    email: 'jordan@example.com',
     name: 'Jordan',
     avatar: 'https://picsum.photos/seed/jordan/150/150',
     goalDays: 5,
-    pairingCode: 'JRD-77'
+    pairingCode: 'JRD-77',
+    wagerAmount: 20
   };
 };
 
