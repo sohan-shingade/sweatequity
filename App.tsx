@@ -106,7 +106,8 @@ function App() {
               setAppState('PARTNER');
             }
           } else {
-            setAppState(user.name ? 'PARTNER' : 'PROFILE');
+            // Force Profile step if goalDays is 0 (incomplete setup)
+            setAppState(user.goalDays > 0 ? 'PARTNER' : 'PROFILE');
           }
         } else {
           setAppState('AUTH');
@@ -262,6 +263,7 @@ function App() {
         currentUser={currentUser}
         onUpdateUser={setCurrentUser}
         onComplete={handleOnboardingComplete} 
+        onSignOut={handleSignOut}
       />
     );
   }

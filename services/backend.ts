@@ -24,6 +24,14 @@ import {
 const USERS_COL = 'users';
 const LOGS_COL = 'workout_logs';
 
+const generatePairingCode = (name: string) => {
+  // Clean name to just letters, default to 'USR'
+  const cleanName = (name || 'USR').replace(/[^a-zA-Z]/g, '').toUpperCase();
+  const prefix = (cleanName.length >= 3 ? cleanName.substring(0, 3) : (cleanName + 'XXX').substring(0, 3));
+  const num = Math.floor(1000 + Math.random() * 9000);
+  return `${prefix}-${num}`;
+};
+
 export const backend = {
   // --- AUTHENTICATION ---
 
@@ -33,9 +41,13 @@ export const backend = {
       const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
         unsubscribe();
         if (firebaseUser) {
-          const userDoc = await getDoc(doc(db, USERS_COL, firebaseUser.uid));
-          if (userDoc.exists()) {
-            return resolve(userDoc.data() as User);
+          try {
+            const userDoc = await getDoc(doc(db, USERS_COL, firebaseUser.uid));
+            if (userDoc.exists()) {
+              return resolve(userDoc.data() as User);
+            }
+          } catch (error) {
+            console.error("Error fetching user profile:", error);
           }
         }
         resolve(null);
@@ -51,20 +63,33 @@ export const backend = {
     const userSnap = await getDoc(userRef);
 
     if (userSnap.exists()) {
-      return userSnap.data() as User;
+      const existingUser = userSnap.data() as User;
+      
+      // Self-healing: If existing user has no pairing code, generate one now
+      if (!existingUser.pairingCode) {
+        const newCode = generatePairingCode(existingUser.name);
+        await updateDoc(userRef, { pairingCode: newCode });
+        existingUser.pairingCode = newCode;
+      }
+      
+      return existingUser;
     } else {
       // Create new basic user doc
+      const newCode = generatePairingCode(user.displayName || '');
+      
       const newUser: User = {
         id: user.uid,
         email: user.email || '',
         name: user.displayName || '',
         avatar: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`,
-        goalDays: 0,
-        pairingCode: '', // Set during profile creation
+        goalDays: 0, // 0 indicates they haven't finished onboarding
+        pairingCode: newCode, 
         wagerAmount: 0,
         partnerId: null
       };
-      await setDoc(userRef, newUser);
+      
+      // Use setDoc with merge: true just in case of weird race conditions, though usually safe
+      await setDoc(userRef, newUser, { merge: true });
       return newUser;
     }
   },
@@ -91,6 +116,7 @@ export const backend = {
   // --- PARTNER SYNC ---
 
   findUserByCode: async (code: string): Promise<User | null> => {
+    if (!code) return null;
     // Note: In production, store codes in uppercase to ensure case-insensitivity matches
     const q = query(collection(db, USERS_COL), where("pairingCode", "==", code.toUpperCase()));
     const querySnapshot = await getDocs(q);
@@ -185,6 +211,9 @@ export const backend = {
       // Client-side sort if index not ready
       logs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       callback(logs);
+    }, (error) => {
+      console.error("Error subscribing to logs:", error);
+      // Don't crash app, just return empty list or handle gracefully
     });
 
     return unsubscribe;
