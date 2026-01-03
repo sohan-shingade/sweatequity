@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { User } from '../types';
-import { X, Upload, Camera } from 'lucide-react';
+import { X, Upload, Camera, Image as ImageIcon, Trash2 } from 'lucide-react';
 
 interface LogModalProps {
   isOpen: boolean;
@@ -12,15 +12,69 @@ interface LogModalProps {
 const LogModal: React.FC<LogModalProps> = ({ isOpen, onClose, currentUser, onSubmit }) => {
   const [activity, setActivity] = useState('Running');
   const [duration, setDuration] = useState(45);
-  
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   if (!isOpen) return null;
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setIsProcessing(true);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          // Resize image to avoid Firestore 1MB limit
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          const MAX_DIM = 800;
+
+          if (width > height) {
+            if (width > MAX_DIM) {
+              height *= MAX_DIM / width;
+              width = MAX_DIM;
+            }
+          } else {
+            if (height > MAX_DIM) {
+              width *= MAX_DIM / height;
+              height = MAX_DIM;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            // Compress as JPEG
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+            setPreviewUrl(dataUrl);
+          }
+          setIsProcessing(false);
+        };
+        img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const clearImage = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPreviewUrl(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Simulate uploading an image by picking a random seed
-    const randomSeed = Math.floor(Math.random() * 1000);
-    const mockPhoto = `https://picsum.photos/seed/${randomSeed}/400/300`;
-    onSubmit(activity, duration, mockPhoto);
+    // Pass the real previewUrl (base64) or empty string if none
+    onSubmit(activity, duration, previewUrl || '');
+    // Reset state
+    setActivity('Running');
+    setDuration(45);
+    setPreviewUrl(null);
     onClose();
   };
 
@@ -63,18 +117,51 @@ const LogModal: React.FC<LogModalProps> = ({ isOpen, onClose, currentUser, onSub
 
           <div>
             <label className="block text-sm font-medium text-slate-400 mb-2">Proof of Sweat</label>
-            <div className="border-2 border-dashed border-slate-700 rounded-xl h-32 flex flex-col items-center justify-center text-slate-500 hover:border-emerald-500 hover:text-emerald-500 transition-colors cursor-pointer bg-slate-800/50">
-              <Camera size={24} className="mb-2" />
-              <span className="text-sm">Tap to take photo</span>
+            <div 
+              onClick={() => fileInputRef.current?.click()}
+              className={`relative border-2 border-dashed rounded-xl h-48 flex flex-col items-center justify-center transition-colors cursor-pointer overflow-hidden ${
+                previewUrl ? 'border-emerald-500 bg-slate-800' : 'border-slate-700 hover:border-emerald-500 hover:text-emerald-500 bg-slate-800/50 text-slate-500'
+              }`}
+            >
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleFileSelect} 
+                accept="image/*" 
+                className="hidden" 
+              />
+              
+              {isProcessing ? (
+                <div className="animate-pulse flex flex-col items-center">
+                   <Upload size={24} className="mb-2" />
+                   <span className="text-sm">Compressing...</span>
+                </div>
+              ) : previewUrl ? (
+                <>
+                  <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                  <button 
+                    onClick={clearImage}
+                    className="absolute top-2 right-2 bg-black/60 hover:bg-rose-600 text-white p-2 rounded-full transition-colors"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Camera size={24} className="mb-2" />
+                  <span className="text-sm">Tap to upload photo</span>
+                  <span className="text-xs text-slate-600 mt-1">Supports JPG, PNG</span>
+                </>
+              )}
             </div>
-            <p className="text-xs text-slate-500 mt-2">*In a real app, this opens the camera.</p>
           </div>
 
           <button 
             type="submit"
-            className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-bold py-3 rounded-lg shadow-lg shadow-emerald-500/20 transition-all transform active:scale-95"
+            disabled={isProcessing}
+            className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg shadow-lg shadow-emerald-500/20 transition-all transform active:scale-95"
           >
-            Submit Log
+            {isProcessing ? 'Processing...' : 'Submit Log'}
           </button>
         </form>
       </div>
