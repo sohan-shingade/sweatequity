@@ -9,6 +9,7 @@ import {
   getDoc, 
   setDoc, 
   updateDoc, 
+  deleteDoc,
   collection, 
   query, 
   where, 
@@ -107,6 +108,19 @@ export const backend = {
     return updated.data() as User;
   },
 
+  // Updates goal and wager for BOTH users in the partnership
+  updateSharedGoals: async (userId: string, partnerId: string | null, newGoal: number, newWager: number) => {
+    return await runTransaction(db, async (transaction) => {
+      const userRef = doc(db, USERS_COL, userId);
+      transaction.update(userRef, { goalDays: newGoal, wagerAmount: newWager });
+
+      if (partnerId) {
+        const partnerRef = doc(db, USERS_COL, partnerId);
+        transaction.update(partnerRef, { goalDays: newGoal, wagerAmount: newWager });
+      }
+    });
+  },
+
   getUserById: async (userId: string): Promise<User | null> => {
     const docRef = doc(db, USERS_COL, userId);
     const snap = await getDoc(docRef);
@@ -189,6 +203,16 @@ export const backend = {
     // We omit 'id' because Firestore generates it, or we use the passed ID as doc ID
     const { id, ...logData } = log;
     await setDoc(doc(db, LOGS_COL, id), logData);
+  },
+
+  // Update a log
+  updateLog: async (logId: string, data: Partial<WorkoutLog>) => {
+    await updateDoc(doc(db, LOGS_COL, logId), data);
+  },
+
+  // Delete a log
+  deleteLog: async (logId: string) => {
+    await deleteDoc(doc(db, LOGS_COL, logId));
   },
 
   // Subscribe to logs for both users (Real-time sync)

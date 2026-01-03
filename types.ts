@@ -14,6 +14,7 @@ export interface WorkoutLog {
   userId: string;
   date: string; // ISO string
   activity: string;
+  subType?: string; // e.g. "Push", "Pull", "Upper Body"
   durationMinutes: number;
   photoUrl?: string; // Proof
   verified: boolean;

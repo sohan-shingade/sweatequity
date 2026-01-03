@@ -11,7 +11,10 @@ import {
   Bot,
   Bell,
   Clock,
-  Settings
+  Settings,
+  Pencil,
+  Trash2,
+  PieChart as PieChartIcon
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -19,7 +22,10 @@ import {
   XAxis, 
   YAxis, 
   Tooltip, 
-  ResponsiveContainer
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell
 } from 'recharts';
 
 import { getRefereeCommentary } from './services/geminiService';
@@ -67,6 +73,8 @@ const ReminderBanner = ({ hasLoggedToday, userName }: { hasLoggedToday: boolean,
   );
 };
 
+const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6', '#6366f1'];
+
 function App() {
   // Auth & Onboarding State
   const [appState, setAppState] = useState<OnboardingStep>('AUTH');
@@ -83,6 +91,7 @@ function App() {
   
   // UI State
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+  const [editingLog, setEditingLog] = useState<WorkoutLog | null>(null); // Track log being edited
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [aiCommentary, setAiCommentary] = useState<string>("");
   const [isLoadingAi, setIsLoadingAi] = useState(false);
@@ -97,6 +106,9 @@ function App() {
         
         if (user) {
           setCurrentUser(user);
+          // Sync wager from user profile
+          setWeekState(prev => ({ ...prev, wagerAmount: user.wagerAmount }));
+          
           if (user.partnerId) {
             const partnerData = await backend.getUserById(user.partnerId);
             if (partnerData) {
@@ -167,24 +179,48 @@ function App() {
     setIsSettingsOpen(false);
   };
 
-  const handleAddWorkout = async (activity: string, duration: number, photoUrl: string) => {
+  const handleSaveLog = async (activity: string, duration: number, photoUrl: string, subType?: string) => {
     if (!currentUser) return;
-    
-    const newLog: WorkoutLog = {
-      id: Date.now().toString(),
-      userId: currentUser.id,
-      date: new Date().toISOString().split('T')[0],
-      activity,
-      durationMinutes: duration,
-      photoUrl,
-      verified: true
-    };
-    
-    // Optimistic UI Update (optional, since the listener will catch it fast)
-    // setLogs(prev => [newLog, ...prev]);
 
-    // Send to Firebase
-    await backend.addLog(newLog);
+    if (editingLog) {
+      // Update Existing
+      await backend.updateLog(editingLog.id, {
+        activity,
+        durationMinutes: duration,
+        photoUrl,
+        subType: subType || null // ensure undefined is cleared
+      });
+      setEditingLog(null);
+    } else {
+      // Create New
+      const newLog: WorkoutLog = {
+        id: Date.now().toString(),
+        userId: currentUser.id,
+        date: new Date().toISOString().split('T')[0],
+        activity,
+        subType,
+        durationMinutes: duration,
+        photoUrl,
+        verified: true
+      };
+      await backend.addLog(newLog);
+    }
+  };
+
+  const openAddLog = () => {
+    setEditingLog(null);
+    setIsLogModalOpen(true);
+  };
+
+  const handleEditClick = (log: WorkoutLog) => {
+    setEditingLog(log);
+    setIsLogModalOpen(true);
+  };
+
+  const handleDeleteClick = async (logId: string) => {
+    if (confirm("Are you sure you want to delete this log?")) {
+      await backend.deleteLog(logId);
+    }
   };
 
   const fetchAiInsights = async () => {
@@ -237,6 +273,15 @@ function App() {
     const debt = Math.max(0, (goal - count) * weekState.wagerAmount);
     return { count, goal, debt, logs: userLogs };
   }, [currentWeekLogs, partner, weekState]);
+
+  // Aggregate Activity Data for Pie Chart
+  const activityData = useMemo(() => {
+    const counts: {[key: string]: number} = {};
+    logs.forEach(log => {
+      counts[log.activity] = (counts[log.activity] || 0) + 1;
+    });
+    return Object.keys(counts).map(key => ({ name: key, value: counts[key] }));
+  }, [logs]);
 
   // --- Helpers ---
 
@@ -354,7 +399,7 @@ function App() {
             <div className={`relative rounded-2xl p-6 border transition-all ${user1Stats.debt > 0 ? 'bg-rose-950/20 border-rose-900/50' : 'bg-slate-800/50 border-slate-700'}`}>
               <div className="flex justify-between items-start mb-4">
                 <div className="flex items-center gap-3">
-                  <img src={currentUser.avatar} className="w-12 h-12 rounded-full border-2 border-slate-600" alt={currentUser.name} />
+                  <img src={currentUser.avatar} className="w-12 h-12 rounded-full border-2 border-slate-600 object-cover" alt={currentUser.name} />
                   <div>
                     <h3 className="font-bold text-lg text-white">You</h3>
                     <p className="text-xs text-slate-400">Goal: {user1Stats.goal} days</p>
@@ -391,7 +436,7 @@ function App() {
              <div className={`relative rounded-2xl p-6 border transition-all ${user2Stats.debt > 0 ? 'bg-rose-950/20 border-rose-900/50' : 'bg-slate-800/50 border-slate-700'}`}>
               <div className="flex justify-between items-start mb-4">
                 <div className="flex items-center gap-3">
-                  <img src={partner.avatar} className="w-12 h-12 rounded-full border-2 border-slate-600" alt={partner.name} />
+                  <img src={partner.avatar} className="w-12 h-12 rounded-full border-2 border-slate-600 object-cover" alt={partner.name} />
                   <div>
                     <h3 className="font-bold text-lg text-white">{partner.name}</h3>
                     <p className="text-xs text-slate-400">Goal: {user2Stats.goal} days</p>
@@ -462,7 +507,7 @@ function App() {
         {/* Consistency & Feed */}
         <div className="grid md:grid-cols-3 gap-8">
           
-          {/* Left Col: Consistency Heatmap */}
+          {/* Left Col: Consistency Heatmap & Visuals */}
           <div className="md:col-span-2 space-y-8">
              <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
                 <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
@@ -471,14 +516,14 @@ function App() {
                 <div className="space-y-6">
                   <div>
                     <div className="flex items-center gap-2 mb-2">
-                       <img src={currentUser.avatar} className="w-5 h-5 rounded-full" />
+                       <img src={currentUser.avatar} className="w-5 h-5 rounded-full object-cover" />
                        <span className="text-sm text-slate-300">You</span>
                     </div>
                     <Heatmap logs={logs} userId={currentUser.id} year={2024} />
                   </div>
                   <div>
                     <div className="flex items-center gap-2 mb-2">
-                       <img src={partner.avatar} className="w-5 h-5 rounded-full" />
+                       <img src={partner.avatar} className="w-5 h-5 rounded-full object-cover" />
                        <span className="text-sm text-slate-300">{partner.name}</span>
                     </div>
                     <Heatmap logs={logs} userId={partner.id} year={2024} />
@@ -486,29 +531,59 @@ function App() {
                 </div>
              </div>
 
-             {/* Activity Chart */}
-             <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl h-80">
-                <h3 className="text-lg font-bold text-white mb-4">Activity Volume</h3>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={[
-                    { name: 'Mon', u1: 30, u2: 45 },
-                    { name: 'Tue', u1: 60, u2: 0 },
-                    { name: 'Wed', u1: 45, u2: 30 },
-                    { name: 'Thu', u1: 0, u2: 60 },
-                    { name: 'Fri', u1: 30, u2: 30 },
-                    { name: 'Sat', u1: 90, u2: 90 },
-                    { name: 'Sun', u1: 0, u2: 0 },
-                  ]}>
-                    <XAxis dataKey="name" stroke="#475569" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis stroke="#475569" fontSize={12} tickLine={false} axisLine={false} />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }}
-                      itemStyle={{ color: '#e2e8f0' }}
-                    />
-                    <Bar dataKey="u1" name="You" fill="#10b981" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="u2" name={partner.name} fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+             <div className="grid md:grid-cols-2 gap-4">
+               {/* Activity Chart */}
+               <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl h-80">
+                  <h3 className="text-lg font-bold text-white mb-4">Volume</h3>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={[
+                      { name: 'Mon', u1: 30, u2: 45 },
+                      { name: 'Tue', u1: 60, u2: 0 },
+                      { name: 'Wed', u1: 45, u2: 30 },
+                      { name: 'Thu', u1: 0, u2: 60 },
+                      { name: 'Fri', u1: 30, u2: 30 },
+                      { name: 'Sat', u1: 90, u2: 90 },
+                      { name: 'Sun', u1: 0, u2: 0 },
+                    ]}>
+                      <XAxis dataKey="name" stroke="#475569" fontSize={10} tickLine={false} axisLine={false} />
+                      <YAxis stroke="#475569" fontSize={10} tickLine={false} axisLine={false} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }}
+                        itemStyle={{ color: '#e2e8f0' }}
+                      />
+                      <Bar dataKey="u1" name="You" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="u2" name={partner.name} fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+               </div>
+
+                {/* Distribution Chart */}
+               <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl h-80">
+                  <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                    <PieChartIcon size={16} /> Types
+                  </h3>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={activityData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {activityData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }}
+                        itemStyle={{ color: '#e2e8f0' }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+               </div>
              </div>
           </div>
 
@@ -522,6 +597,7 @@ function App() {
                 return (
                   <div key={log.id} className={`relative pl-6 border-l-2 transition-colors pb-2 ${isMe ? 'border-emerald-500/50' : 'border-slate-800'}`}>
                     <div className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 ${isMe ? 'bg-emerald-500 border-emerald-300' : 'bg-slate-900 border-slate-600'}`}></div>
+                    
                     <div className="flex items-start justify-between">
                       <div>
                         <div className="flex items-center gap-2 mb-1">
@@ -529,13 +605,36 @@ function App() {
                           <span className="text-slate-500 text-xs">• {new Date(log.date).toLocaleDateString(undefined, { weekday: 'short' })}</span>
                         </div>
                         <p className="text-sm text-slate-400 mb-2">
-                          Did <span className="text-emerald-400 font-medium">{log.activity}</span> for {log.durationMinutes}m
+                          Did <span className="text-emerald-400 font-medium">{log.activity}</span>
+                          {log.subType && <span className="text-slate-500 text-xs ml-1">• {log.subType}</span>}
+                          <span className="text-slate-500 text-xs ml-1">for {log.durationMinutes}m</span>
                         </p>
                       </div>
+                      
+                      {/* Edit/Delete Actions for Own Logs */}
+                      {isMe && (
+                        <div className="flex items-center gap-1 opacity-50 hover:opacity-100 transition-opacity">
+                          <button 
+                            onClick={() => handleEditClick(log)}
+                            className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-emerald-400"
+                            title="Edit"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteClick(log.id)}
+                            className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-rose-400"
+                            title="Delete"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      )}
                     </div>
+
                     {log.photoUrl && (
-                      <div className="rounded-lg overflow-hidden h-24 w-full bg-slate-800">
-                        <img src={log.photoUrl} className="w-full h-full object-cover opacity-80 hover:opacity-100 transition-opacity" alt="Proof" />
+                      <div className="rounded-lg overflow-hidden h-24 w-full bg-slate-800 mt-2">
+                        <img src={log.photoUrl} className="w-full h-full object-cover opacity-90 hover:opacity-100 transition-opacity" alt="Proof" />
                       </div>
                     )}
                   </div>
@@ -551,9 +650,9 @@ function App() {
 
       </main>
 
-      {/* Floating Action Button (Simulate Bot Input) */}
+      {/* Floating Action Button */}
       <button 
-        onClick={() => setIsLogModalOpen(true)}
+        onClick={openAddLog}
         className="fixed bottom-6 right-6 md:bottom-10 md:right-10 bg-emerald-500 hover:bg-emerald-400 text-white p-4 rounded-full shadow-lg shadow-emerald-500/30 transition-all hover:scale-110 z-50 group"
       >
         <Plus size={28} />
@@ -567,7 +666,8 @@ function App() {
         isOpen={isLogModalOpen} 
         onClose={() => setIsLogModalOpen(false)}
         currentUser={currentUser}
-        onSubmit={handleAddWorkout}
+        onSubmit={handleSaveLog}
+        initialData={editingLog}
       />
       
       <SettingsModal
