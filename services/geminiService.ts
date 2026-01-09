@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { WeekState, User, WorkoutLog } from '../types';
 
-// const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const getRefereeCommentary = async (
   weekState: WeekState,
@@ -39,9 +39,15 @@ export const getRefereeCommentary = async (
       Use emojis.
     `;
 
-    
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        thinkingConfig: { thinkingBudget: 0 } // Fast response needed
+      }
+    });
 
-    return "Keep pushing! The week isn't over yet!";
+    return response.text || "Keep pushing! The week isn't over yet!";
   } catch (error) {
     console.error("Gemini Referee Error:", error);
     return "Referee is taking a water break. Check back later!";

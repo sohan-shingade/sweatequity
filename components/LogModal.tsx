@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { User, WorkoutLog } from '../types';
-import { X, Upload, Camera, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { X, Upload, Camera, Image as ImageIcon, Trash2, Calendar } from 'lucide-react';
 
 interface LogModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: User;
-  onSubmit: (activity: string, duration: number, photoUrl: string, subType?: string) => void;
+  onSubmit: (activity: string, duration: number, photoUrl: string, subType?: string, date?: string) => void;
   initialData?: WorkoutLog | null; // For editing
 }
 
@@ -14,6 +14,7 @@ const LogModal: React.FC<LogModalProps> = ({ isOpen, onClose, currentUser, onSub
   const [activity, setActivity] = useState('Running');
   const [subType, setSubType] = useState('');
   const [duration, setDuration] = useState(45);
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -25,11 +26,13 @@ const LogModal: React.FC<LogModalProps> = ({ isOpen, onClose, currentUser, onSub
         setActivity(initialData.activity);
         setSubType(initialData.subType || '');
         setDuration(initialData.durationMinutes);
+        setDate(initialData.date);
         setPreviewUrl(initialData.photoUrl || null);
       } else {
         setActivity('Running');
         setSubType('');
         setDuration(45);
+        setDate(new Date().toISOString().split('T')[0]);
         setPreviewUrl(null);
       }
     }
@@ -58,7 +61,7 @@ const LogModal: React.FC<LogModalProps> = ({ isOpen, onClose, currentUser, onSub
           const canvas = document.createElement('canvas');
           let width = img.width;
           let height = img.height;
-          const MAX_DIM = 800;
+          const MAX_DIM = 1000; // Increased slightly for better quality on full-screen
 
           if (width > height) {
             if (width > MAX_DIM) {
@@ -78,7 +81,7 @@ const LogModal: React.FC<LogModalProps> = ({ isOpen, onClose, currentUser, onSub
           if (ctx) {
             ctx.drawImage(img, 0, 0, width, height);
             // Compress as JPEG
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
             setPreviewUrl(dataUrl);
           }
           setIsProcessing(false);
@@ -97,14 +100,13 @@ const LogModal: React.FC<LogModalProps> = ({ isOpen, onClose, currentUser, onSub
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Pass the real previewUrl (base64) or empty string if none
-    onSubmit(activity, duration, previewUrl || '', subType);
+    onSubmit(activity, duration, previewUrl || '', subType, date);
     onClose();
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl p-6 shadow-2xl">
+      <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl p-6 shadow-2xl max-h-[95vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-bold text-white">{initialData ? 'Edit Workout' : 'Log Workout'}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-white">
@@ -122,6 +124,7 @@ const LogModal: React.FC<LogModalProps> = ({ isOpen, onClose, currentUser, onSub
             >
               <option>Running</option>
               <option>Weightlifting</option>
+              <option>Climbing</option>
               <option>Cycling</option>
               <option>Yoga</option>
               <option>CrossFit</option>
@@ -151,14 +154,27 @@ const LogModal: React.FC<LogModalProps> = ({ isOpen, onClose, currentUser, onSub
             </div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium text-slate-400 mb-1">Duration (Minutes)</label>
-            <input 
-              type="number" 
-              value={duration}
-              onChange={(e) => setDuration(Number(e.target.value))}
-              className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none"
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-400 mb-1">Duration (Min)</label>
+              <input 
+                type="number" 
+                value={duration}
+                onChange={(e) => setDuration(Number(e.target.value))}
+                className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-400 mb-1 flex items-center gap-1">
+                <Calendar size={14} /> Date
+              </label>
+              <input 
+                type="date" 
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg p-3 focus:ring-2 focus:ring-emerald-500 outline-none"
+              />
+            </div>
           </div>
 
           <div>

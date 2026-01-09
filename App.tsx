@@ -5,16 +5,15 @@ import {
   Calendar, 
   Activity, 
   Plus, 
-  Zap,
   TrendingUp,
-  AlertTriangle,
-  Bot,
   Bell,
   Clock,
   Settings,
   Pencil,
   Trash2,
-  PieChart as PieChartIcon
+  PieChart as PieChartIcon,
+  X,
+  Maximize2
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -28,7 +27,6 @@ import {
   Cell
 } from 'recharts';
 
-import { getRefereeCommentary } from './services/geminiService';
 import { backend } from './services/backend';
 import { User, WorkoutLog, WeekState, OnboardingStep } from './types';
 import Heatmap from './components/Heatmap';
@@ -66,8 +64,8 @@ const ReminderBanner = ({ hasLoggedToday, userName }: { hasLoggedToday: boolean,
         </div>
       </div>
       <div className="hidden md:block text-right">
-        <p className="text-[10px] text-orange-300 uppercase font-bold tracking-wider">Bot Alert</p>
-        <p className="text-xs text-orange-400">Reminder sent 2h ago</p>
+        <p className="text-[10px] text-orange-300 uppercase font-bold tracking-wider">Alert</p>
+        <p className="text-xs text-orange-400">Streak at risk!</p>
       </div>
     </div>
   );
@@ -93,8 +91,7 @@ function App() {
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [editingLog, setEditingLog] = useState<WorkoutLog | null>(null); // Track log being edited
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [aiCommentary, setAiCommentary] = useState<string>("");
-  const [isLoadingAi, setIsLoadingAi] = useState(false);
+  const [expandedImage, setExpandedImage] = useState<string | null>(null);
 
   // --- Initialization ---
   
@@ -179,7 +176,7 @@ function App() {
     setIsSettingsOpen(false);
   };
 
-  const handleSaveLog = async (activity: string, duration: number, photoUrl: string, subType?: string) => {
+  const handleSaveLog = async (activity: string, duration: number, photoUrl: string, subType?: string, date?: string) => {
     if (!currentUser) return;
 
     if (editingLog) {
@@ -188,6 +185,7 @@ function App() {
         activity,
         durationMinutes: duration,
         photoUrl,
+        date: date || editingLog.date,
         subType: subType || null // ensure undefined is cleared
       });
       setEditingLog(null);
@@ -196,7 +194,7 @@ function App() {
       const newLog: WorkoutLog = {
         id: Date.now().toString(),
         userId: currentUser.id,
-        date: new Date().toISOString().split('T')[0],
+        date: date || new Date().toISOString().split('T')[0],
         activity,
         subType,
         durationMinutes: duration,
@@ -222,24 +220,6 @@ function App() {
       await backend.deleteLog(logId);
     }
   };
-
-  const fetchAiInsights = async () => {
-    if (!currentUser || !partner) return;
-    setIsLoadingAi(true);
-    const comment = await getRefereeCommentary(weekState, [currentUser, partner], currentWeekLogs, new Date());
-    setAiCommentary(comment);
-    setIsLoadingAi(false);
-  };
-
-  // Auto-fetch AI on load
-  useEffect(() => {
-    if (appState === 'COMPLETED' && logs.length > 0 && !aiCommentary) {
-       const timer = setTimeout(() => fetchAiInsights(), 1500);
-       return () => clearTimeout(timer);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [logs, appState]);
-
 
   // --- Derived State ---
 
@@ -355,32 +335,6 @@ function App() {
         {/* Daily Reminder Status */}
         <ReminderBanner hasLoggedToday={hasLoggedToday} userName={currentUser.name} />
 
-        {/* AI Referee Banner */}
-        <div className="bg-gradient-to-r from-indigo-900/50 to-slate-900 border border-indigo-500/30 rounded-2xl p-6 relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-            <Bot size={100} />
-          </div>
-          <div className="relative z-10">
-            <div className="flex items-center gap-2 mb-2 text-indigo-400">
-              <Zap size={16} className="animate-pulse" />
-              <span className="text-xs font-bold uppercase tracking-widest">AI Referee Report</span>
-            </div>
-            {isLoadingAi ? (
-              <div className="h-6 w-2/3 bg-slate-800 animate-pulse rounded"></div>
-            ) : (
-              <p className="text-lg md:text-xl font-medium text-indigo-100 italic leading-relaxed">
-                "{aiCommentary}"
-              </p>
-            )}
-            <button 
-              onClick={fetchAiInsights}
-              className="mt-4 text-xs bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-300 px-3 py-1 rounded-full transition-colors"
-            >
-              Refresh Analysis
-            </button>
-          </div>
-        </div>
-
         {/* The Arena (Weekly Battle) */}
         <section>
           <div className="flex items-center justify-between mb-4">
@@ -489,11 +443,11 @@ function App() {
             subtext="Weekly risk" 
           />
            <StatCard 
-            title="Bot Alerts" 
-            value={3} 
+            title="Misses Saved" 
+            value={logs.length > 5 ? 2 : 0} 
             icon={Bell} 
             colorClass="text-orange-400"
-            subtext="This week" 
+            subtext="Lifetime" 
           />
           <StatCard 
             title="Streak" 
@@ -591,18 +545,18 @@ function App() {
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl h-fit">
             <h3 className="text-lg font-bold text-white mb-6">Recent Proof</h3>
             <div className="space-y-6">
-              {logs.slice(0, 5).map((log) => {
+              {logs.slice(0, 10).map((log) => {
                 const isMe = log.userId === currentUser.id;
                 const user = isMe ? currentUser : partner;
                 return (
-                  <div key={log.id} className={`relative pl-6 border-l-2 transition-colors pb-2 ${isMe ? 'border-emerald-500/50' : 'border-slate-800'}`}>
+                  <div key={log.id} className={`relative pl-6 border-l-2 transition-colors pb-4 ${isMe ? 'border-emerald-500/50' : 'border-slate-800'}`}>
                     <div className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 ${isMe ? 'bg-emerald-500 border-emerald-300' : 'bg-slate-900 border-slate-600'}`}></div>
                     
                     <div className="flex items-start justify-between">
                       <div>
                         <div className="flex items-center gap-2 mb-1">
                           <span className="font-bold text-slate-200 text-sm">{isMe ? 'You' : user.name}</span>
-                          <span className="text-slate-500 text-xs">• {new Date(log.date).toLocaleDateString(undefined, { weekday: 'short' })}</span>
+                          <span className="text-slate-500 text-xs">• {new Date(log.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
                         </div>
                         <p className="text-sm text-slate-400 mb-2">
                           Did <span className="text-emerald-400 font-medium">{log.activity}</span>
@@ -633,8 +587,14 @@ function App() {
                     </div>
 
                     {log.photoUrl && (
-                      <div className="rounded-lg overflow-hidden h-24 w-full bg-slate-800 mt-2">
-                        <img src={log.photoUrl} className="w-full h-full object-cover opacity-90 hover:opacity-100 transition-opacity" alt="Proof" />
+                      <div 
+                        onClick={() => setExpandedImage(log.photoUrl || null)}
+                        className="group relative rounded-lg overflow-hidden h-32 w-full bg-slate-800 mt-2 cursor-pointer transition-transform active:scale-95"
+                      >
+                        <img src={log.photoUrl} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" alt="Proof" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                           <Maximize2 size={24} className="text-white" />
+                        </div>
                       </div>
                     )}
                   </div>
@@ -678,6 +638,27 @@ function App() {
         onUnlink={handleUnlink}
         onSignOut={handleSignOut}
       />
+
+      {/* Expanded Image Modal */}
+      {expandedImage && (
+        <div 
+          className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 backdrop-blur-md animate-fadeIn"
+          onClick={() => setExpandedImage(null)}
+        >
+          <button 
+            className="absolute top-6 right-6 text-white/70 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors"
+            onClick={() => setExpandedImage(null)}
+          >
+            <X size={32} />
+          </button>
+          <img 
+            src={expandedImage} 
+            alt="Workout Proof" 
+            className="max-w-full max-h-full rounded-xl shadow-2xl animate-scaleUp"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
 
     </div>
   );
