@@ -1,4 +1,4 @@
-import { User, WorkoutLog } from '../types';
+import { User, WorkoutLog, WeeklySummary } from '../types';
 import { auth, db, googleProvider } from './firebase';
 import { 
   signInWithPopup, 
@@ -24,9 +24,9 @@ import {
 // Collection References
 const USERS_COL = 'users';
 const LOGS_COL = 'workout_logs';
+const SUMMARIES_COL = 'weekly_summaries';
 
 const generatePairingCode = (name: string) => {
-  // Clean name to just letters, default to 'USR'
   const cleanName = (name || 'USR').replace(/[^a-zA-Z]/g, '').toUpperCase();
   const prefix = (cleanName.length >= 3 ? cleanName.substring(0, 3) : (cleanName + 'XXX').substring(0, 3));
   const num = Math.floor(1000 + Math.random() * 9000);
@@ -37,7 +37,6 @@ export const backend = {
   // --- AUTHENTICATION ---
 
   getCurrentUser: async (): Promise<User | null> => {
-    // We wait for Firebase to initialize auth state
     return new Promise((resolve) => {
       const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
         unsubscribe();
@@ -65,31 +64,25 @@ export const backend = {
 
     if (userSnap.exists()) {
       const existingUser = userSnap.data() as User;
-      
-      // Self-healing: If existing user has no pairing code, generate one now
       if (!existingUser.pairingCode) {
         const newCode = generatePairingCode(existingUser.name);
         await updateDoc(userRef, { pairingCode: newCode });
         existingUser.pairingCode = newCode;
       }
-      
       return existingUser;
     } else {
-      // Create new basic user doc
       const newCode = generatePairingCode(user.displayName || '');
-      
       const newUser: User = {
         id: user.uid,
         email: user.email || '',
         name: user.displayName || '',
         avatar: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`,
-        goalDays: 0, // 0 indicates they haven't finished onboarding
+        goalDays: 0,
         pairingCode: newCode, 
         wagerAmount: 0,
-        partnerId: null
+        partnerId: null,
+        lastResetDate: new Date().toISOString()
       };
-      
-      // Use setDoc with merge: true just in case of weird race conditions, though usually safe
       await setDoc(userRef, newUser, { merge: true });
       return newUser;
     }
@@ -108,7 +101,6 @@ export const backend = {
     return updated.data() as User;
   },
 
-  // Updates goal and wager for BOTH users in the partnership
   updateSharedGoals: async (userId: string, partnerId: string | null, newGoal: number, newWager: number) => {
     return await runTransaction(db, async (transaction) => {
       const userRef = doc(db, USERS_COL, userId);
@@ -127,11 +119,33 @@ export const backend = {
     return snap.exists() ? (snap.data() as User) : null;
   },
 
+  // --- SUMMARIES & RESET ---
+
+  saveWeeklySummary: async (summary: WeeklySummary) => {
+    const docRef = doc(db, SUMMARIES_COL, summary.id);
+    await setDoc(docRef, summary);
+  },
+
+  getWeeklyHistory: async (userId: string): Promise<WeeklySummary[]> => {
+    const q = query(
+      collection(db, SUMMARIES_COL), 
+      where("participantIds", "array-contains", userId),
+      orderBy("weekStarting", "desc"),
+      limit(20)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as WeeklySummary);
+  },
+
+  updateLastResetDate: async (userId: string, date: string) => {
+    const userRef = doc(db, USERS_COL, userId);
+    await updateDoc(userRef, { lastResetDate: date });
+  },
+
   // --- PARTNER SYNC ---
 
   findUserByCode: async (code: string): Promise<User | null> => {
     if (!code) return null;
-    // Note: In production, store codes in uppercase to ensure case-insensitivity matches
     const q = query(collection(db, USERS_COL), where("pairingCode", "==", code.toUpperCase()));
     const querySnapshot = await getDocs(q);
     if (querySnapshot.empty) return null;
@@ -139,14 +153,11 @@ export const backend = {
   },
 
   linkPartners: async (initiatorId: string, partnerCode: string): Promise<{user: User, partner: User}> => {
-    // Transactions ensure both users update, or neither does (preventing bad states)
     return await runTransaction(db, async (transaction) => {
-      // 1. Get Initiator
       const initiatorRef = doc(db, USERS_COL, initiatorId);
       const initiatorSnap = await transaction.get(initiatorRef);
       if (!initiatorSnap.exists()) throw new Error("User does not exist!");
       
-      // 2. Find Partner
       const q = query(collection(db, USERS_COL), where("pairingCode", "==", partnerCode.toUpperCase()));
       const partnerQuery = await getDocs(q);
       
@@ -157,18 +168,16 @@ export const backend = {
       const initiatorData = initiatorSnap.data() as User;
       const partnerData = partnerSnap.data() as User;
 
-      // 3. Validations
       if (initiatorData.id === partnerData.id) throw new Error("You cannot link to yourself.");
       if (partnerData.partnerId) throw new Error("This user is already in a battle.");
 
-      // 4. Perform Updates
       transaction.update(initiatorRef, { 
         partnerId: partnerData.id 
       });
       
       transaction.update(partnerRef, { 
         partnerId: initiatorData.id,
-        wagerAmount: initiatorData.wagerAmount // Sync wager
+        wagerAmount: initiatorData.wagerAmount
       });
 
       return {
@@ -182,14 +191,8 @@ export const backend = {
     const userRef = doc(db, USERS_COL, userId);
     const userSnap = await getDoc(userRef);
     if(!userSnap.exists()) return;
-
     const userData = userSnap.data() as User;
-    
-    const batch = [];
-    // Unlink self
     await updateDoc(userRef, { partnerId: null });
-
-    // Unlink partner if exists
     if (userData.partnerId) {
       const partnerRef = doc(db, USERS_COL, userData.partnerId);
       await updateDoc(partnerRef, { partnerId: null });
@@ -198,48 +201,36 @@ export const backend = {
 
   // --- LOGS (REAL TIME) ---
 
-  // Add a new workout
   addLog: async (log: WorkoutLog) => {
-    // We omit 'id' because Firestore generates it, or we use the passed ID as doc ID
     const { id, ...logData } = log;
     await setDoc(doc(db, LOGS_COL, id), logData);
   },
 
-  // Update a log
   updateLog: async (logId: string, data: Partial<WorkoutLog>) => {
     await updateDoc(doc(db, LOGS_COL, logId), data);
   },
 
-  // Delete a log
   deleteLog: async (logId: string) => {
     await deleteDoc(doc(db, LOGS_COL, logId));
   },
 
-  // Subscribe to logs for both users (Real-time sync)
   subscribeToLogs: (userIds: string[], callback: (logs: WorkoutLog[]) => void) => {
     if (userIds.length === 0) return () => {};
-
     const q = query(
       collection(db, LOGS_COL),
       where("userId", "in", userIds),
-      // Indexing might be required for complex queries in Firestore console
-      // orderBy("date", "desc"), 
-      limit(100)
+      limit(200)
     );
-
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const logs: WorkoutLog[] = [];
       querySnapshot.forEach((doc) => {
         logs.push({ id: doc.id, ...doc.data() } as WorkoutLog);
       });
-      // Client-side sort if index not ready
       logs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       callback(logs);
     }, (error) => {
       console.error("Error subscribing to logs:", error);
-      // Don't crash app, just return empty list or handle gracefully
     });
-
     return unsubscribe;
   }
 };

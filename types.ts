@@ -7,6 +7,7 @@ export interface User {
   pairingCode: string;
   partnerId?: string | null; // ID of the linked partner
   wagerAmount: number;
+  lastResetDate?: string; // ISO date of last weekly reset
 }
 
 export interface WorkoutLog {
@@ -18,6 +19,23 @@ export interface WorkoutLog {
   durationMinutes: number;
   photoUrl?: string; // Proof
   verified: boolean;
+}
+
+export interface WeeklySummary {
+  id: string;
+  weekStarting: string;
+  weekEnding: string;
+  participantIds: string[];
+  stats: {
+    [userId: string]: {
+      name: string;
+      avatar: string;
+      goal: number;
+      actual: number;
+      debt: number;
+      wager: number;
+    }
+  };
 }
 
 export interface WeekState {
