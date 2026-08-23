@@ -1,236 +1,161 @@
 import { User, WorkoutLog, WeeklySummary } from '../types';
-import { auth, db, googleProvider } from './firebase';
-import { 
-  signInWithPopup, 
-  signOut as firebaseSignOut 
-} from 'firebase/auth';
-import { 
-  doc, 
-  getDoc, 
-  setDoc, 
-  updateDoc, 
-  deleteDoc,
-  collection, 
-  query, 
-  where, 
-  getDocs,
-  addDoc,
-  runTransaction,
-  onSnapshot,
-  orderBy,
-  limit
-} from 'firebase/firestore';
 
-// Collection References
-const USERS_COL = 'users';
-const LOGS_COL = 'workout_logs';
-const SUMMARIES_COL = 'weekly_summaries';
+// HTTP client for the SweatEquity server (server/index.mjs).
+// Same-origin by default (the server serves the built frontend); VITE_API_URL overrides in dev.
+const API = import.meta.env.VITE_API_URL || '';
+const TOKEN_KEY = 'sweat_token';
 
-const generatePairingCode = (name: string) => {
-  const cleanName = (name || 'USR').replace(/[^a-zA-Z]/g, '').toUpperCase();
-  const prefix = (cleanName.length >= 3 ? cleanName.substring(0, 3) : (cleanName + 'XXX').substring(0, 3));
-  const num = Math.floor(1000 + Math.random() * 9000);
-  return `${prefix}-${num}`;
+export const getToken = () => localStorage.getItem(TOKEN_KEY);
+
+export interface FoodLog {
+  id: string;
+  userId: string;
+  date: string;
+  createdAt: string;
+  description: string;
+  photoUrl?: string;
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  confidence?: string;
+  notes?: string;
+}
+
+const request = async (path: string, options: RequestInit = {}) => {
+  const res = await fetch(`${API}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+      ...options.headers,
+    },
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);
+  return body;
 };
 
 export const backend = {
   // --- AUTHENTICATION ---
 
   getCurrentUser: async (): Promise<User | null> => {
-    return new Promise((resolve) => {
-      const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
-        unsubscribe();
-        if (firebaseUser) {
-          try {
-            const userDoc = await getDoc(doc(db, USERS_COL, firebaseUser.uid));
-            if (userDoc.exists()) {
-              return resolve(userDoc.data() as User);
-            }
-          } catch (error) {
-            console.error("Error fetching user profile:", error);
-          }
-        }
-        resolve(null);
-      });
-    });
-  },
-
-  signInWithGoogle: async (): Promise<User> => {
-    const result = await signInWithPopup(auth, googleProvider);
-    const user = result.user;
-    
-    const userRef = doc(db, USERS_COL, user.uid);
-    const userSnap = await getDoc(userRef);
-
-    if (userSnap.exists()) {
-      const existingUser = userSnap.data() as User;
-      if (!existingUser.pairingCode) {
-        const newCode = generatePairingCode(existingUser.name);
-        await updateDoc(userRef, { pairingCode: newCode });
-        existingUser.pairingCode = newCode;
-      }
-      return existingUser;
-    } else {
-      const newCode = generatePairingCode(user.displayName || '');
-      const newUser: User = {
-        id: user.uid,
-        email: user.email || '',
-        name: user.displayName || '',
-        avatar: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`,
-        goalDays: 0,
-        pairingCode: newCode, 
-        wagerAmount: 0,
-        partnerId: null,
-        lastResetDate: new Date().toISOString()
-      };
-      await setDoc(userRef, newUser, { merge: true });
-      return newUser;
+    if (!getToken()) return null;
+    try {
+      return await request('/api/me');
+    } catch {
+      return null;
     }
   },
 
+  signUp: async (name: string): Promise<User> => {
+    const { user, token } = await request('/api/signup', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+    localStorage.setItem(TOKEN_KEY, token);
+    return user;
+  },
+
+  signInWithToken: async (token: string): Promise<User> => {
+    localStorage.setItem(TOKEN_KEY, token.trim());
+    const user = await backend.getCurrentUser();
+    if (!user) {
+      localStorage.removeItem(TOKEN_KEY);
+      throw new Error('Invalid token');
+    }
+    return user;
+  },
+
   signOut: async () => {
-    await firebaseSignOut(auth);
+    localStorage.removeItem(TOKEN_KEY);
   },
 
   // --- USER MANAGEMENT ---
 
-  updateProfile: async (userId: string, data: Partial<User>): Promise<User> => {
-    const userRef = doc(db, USERS_COL, userId);
-    await updateDoc(userRef, data);
-    const updated = await getDoc(userRef);
-    return updated.data() as User;
+  updateProfile: async (userId: string, data: Partial<User>): Promise<User> =>
+    request(`/api/users/${userId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  updateSharedGoals: async (_userId: string, _partnerId: string | null, newGoal: number, newWager: number) => {
+    await request('/api/goals', { method: 'POST', body: JSON.stringify({ goal: newGoal, wager: newWager }) });
   },
 
-  updateSharedGoals: async (userId: string, partnerId: string | null, newGoal: number, newWager: number) => {
-    return await runTransaction(db, async (transaction) => {
-      const userRef = doc(db, USERS_COL, userId);
-      transaction.update(userRef, { goalDays: newGoal, wagerAmount: newWager });
-
-      if (partnerId) {
-        const partnerRef = doc(db, USERS_COL, partnerId);
-        transaction.update(partnerRef, { goalDays: newGoal, wagerAmount: newWager });
-      }
-    });
-  },
-
-  getUserById: async (userId: string): Promise<User | null> => {
-    const docRef = doc(db, USERS_COL, userId);
-    const snap = await getDoc(docRef);
-    return snap.exists() ? (snap.data() as User) : null;
-  },
+  getUserById: async (userId: string): Promise<User | null> =>
+    request(`/api/users/${userId}`),
 
   // --- SUMMARIES & RESET ---
 
   saveWeeklySummary: async (summary: WeeklySummary) => {
-    const docRef = doc(db, SUMMARIES_COL, summary.id);
-    await setDoc(docRef, summary);
+    await request(`/api/summaries/${summary.id}`, { method: 'PUT', body: JSON.stringify(summary) });
   },
 
-  getWeeklyHistory: async (userId: string): Promise<WeeklySummary[]> => {
-    const q = query(
-      collection(db, SUMMARIES_COL), 
-      where("participantIds", "array-contains", userId),
-      orderBy("weekStarting", "desc"),
-      limit(20)
-    );
-    const snap = await getDocs(q);
-    return snap.docs.map(d => d.data() as WeeklySummary);
-  },
+  getWeeklyHistory: async (_userId: string): Promise<WeeklySummary[]> =>
+    request('/api/summaries'),
 
   updateLastResetDate: async (userId: string, date: string) => {
-    const userRef = doc(db, USERS_COL, userId);
-    await updateDoc(userRef, { lastResetDate: date });
+    await request(`/api/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ lastResetDate: date }) });
   },
 
   // --- PARTNER SYNC ---
 
-  findUserByCode: async (code: string): Promise<User | null> => {
-    if (!code) return null;
-    const q = query(collection(db, USERS_COL), where("pairingCode", "==", code.toUpperCase()));
-    const querySnapshot = await getDocs(q);
-    if (querySnapshot.empty) return null;
-    return querySnapshot.docs[0].data() as User;
+  findUserByCode: async (code: string): Promise<User | null> =>
+    code ? request(`/api/users/code/${encodeURIComponent(code)}`) : null,
+
+  linkPartners: async (_initiatorId: string, partnerCode: string): Promise<{ user: User; partner: User }> =>
+    request('/api/link', { method: 'POST', body: JSON.stringify({ code: partnerCode }) }),
+
+  unlinkPartner: async (_userId: string) => {
+    await request('/api/unlink', { method: 'POST' });
   },
 
-  linkPartners: async (initiatorId: string, partnerCode: string): Promise<{user: User, partner: User}> => {
-    return await runTransaction(db, async (transaction) => {
-      const initiatorRef = doc(db, USERS_COL, initiatorId);
-      const initiatorSnap = await transaction.get(initiatorRef);
-      if (!initiatorSnap.exists()) throw new Error("User does not exist!");
-      
-      const q = query(collection(db, USERS_COL), where("pairingCode", "==", partnerCode.toUpperCase()));
-      const partnerQuery = await getDocs(q);
-      
-      if (partnerQuery.empty) throw new Error("Invalid Partner Code");
-      const partnerSnap = partnerQuery.docs[0];
-      const partnerRef = partnerSnap.ref;
-
-      const initiatorData = initiatorSnap.data() as User;
-      const partnerData = partnerSnap.data() as User;
-
-      if (initiatorData.id === partnerData.id) throw new Error("You cannot link to yourself.");
-      if (partnerData.partnerId) throw new Error("This user is already in a battle.");
-
-      transaction.update(initiatorRef, { 
-        partnerId: partnerData.id 
-      });
-      
-      transaction.update(partnerRef, { 
-        partnerId: initiatorData.id,
-        wagerAmount: initiatorData.wagerAmount
-      });
-
-      return {
-        user: { ...initiatorData, partnerId: partnerData.id },
-        partner: { ...partnerData, partnerId: initiatorData.id, wagerAmount: initiatorData.wagerAmount }
-      };
-    });
-  },
-
-  unlinkPartner: async (userId: string) => {
-    const userRef = doc(db, USERS_COL, userId);
-    const userSnap = await getDoc(userRef);
-    if(!userSnap.exists()) return;
-    const userData = userSnap.data() as User;
-    await updateDoc(userRef, { partnerId: null });
-    if (userData.partnerId) {
-      const partnerRef = doc(db, USERS_COL, userData.partnerId);
-      await updateDoc(partnerRef, { partnerId: null });
-    }
-  },
-
-  // --- LOGS (REAL TIME) ---
+  // --- LOGS ---
 
   addLog: async (log: WorkoutLog) => {
-    const { id, ...logData } = log;
-    await setDoc(doc(db, LOGS_COL, id), logData);
+    await request('/api/logs', { method: 'POST', body: JSON.stringify(log) });
   },
 
   updateLog: async (logId: string, data: Partial<WorkoutLog>) => {
-    await updateDoc(doc(db, LOGS_COL, logId), data);
+    await request(`/api/logs/${logId}`, { method: 'PATCH', body: JSON.stringify(data) });
   },
 
   deleteLog: async (logId: string) => {
-    await deleteDoc(doc(db, LOGS_COL, logId));
+    await request(`/api/logs/${logId}`, { method: 'DELETE' });
   },
 
+  // Fetch once, then refetch whenever the server broadcasts a change (SSE).
   subscribeToLogs: (userIds: string[], callback: (logs: WorkoutLog[]) => void) => {
     if (userIds.length === 0) return () => {};
-    const q = query(
-      collection(db, LOGS_COL),
-      where("userId", "in", userIds),
-      limit(200)
-    );
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const logs: WorkoutLog[] = [];
-      querySnapshot.forEach((doc) => {
-        logs.push({ id: doc.id, ...doc.data() } as WorkoutLog);
-      });
-      logs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      callback(logs);
-    }, (error) => {
-      console.error("Error subscribing to logs:", error);
-    });
-    return unsubscribe;
-  }
+    let alive = true;
+    const fetchLogs = () =>
+      request('/api/logs').then((logs: WorkoutLog[]) => { if (alive) callback(logs); }).catch(() => {});
+    fetchLogs();
+    const es = new EventSource(`${API}/api/events?token=${getToken()}`);
+    es.onmessage = (e) => { if (e.data === 'logs' || e.data === 'users') fetchLogs(); };
+    return () => { alive = false; es.close(); };
+  },
+
+  // --- FOOD ---
+
+  analyzeFood: async (photo: string | null, description: string, date: string): Promise<FoodLog> =>
+    request('/api/food', { method: 'POST', body: JSON.stringify({ photo, description, date }) }),
+
+  getFoodLogs: async (date: string): Promise<FoodLog[]> =>
+    request(`/api/food?date=${date}`),
+
+  subscribeToFood: (date: string, callback: (entries: FoodLog[]) => void) => {
+    let alive = true;
+    const fetchFood = () =>
+      backend.getFoodLogs(date).then((f) => { if (alive) callback(f); }).catch(() => {});
+    fetchFood();
+    const es = new EventSource(`${API}/api/events?token=${getToken()}`);
+    es.onmessage = (e) => { if (e.data === 'food') fetchFood(); };
+    return () => { alive = false; es.close(); };
+  },
+
+  updateFoodLog: async (id: string, data: Partial<FoodLog>): Promise<FoodLog> =>
+    request(`/api/food/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  deleteFoodLog: async (id: string) => {
+    await request(`/api/food/${id}`, { method: 'DELETE' });
+  },
 };

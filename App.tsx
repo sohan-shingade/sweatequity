@@ -37,6 +37,7 @@ import Onboarding from './components/Onboarding';
 import SettingsModal from './components/SettingsModal';
 import SummaryModal from './components/SummaryModal';
 import HistoryModal from './components/HistoryModal';
+import FoodSection from './components/FoodSection';
 
 // --- Helpers ---
 
@@ -485,6 +486,9 @@ function App() {
           <StatCard title="This Week" value={`${weeklyMinutes}m`} icon={Bell} colorClass="text-orange-400" subtext="Your minutes" />
           <StatCard title="Streak" value={`${streak} ${streak === 1 ? 'Day' : 'Days'}`} icon={Flame} colorClass="text-rose-400" subtext="Current streak" />
         </section>
+
+        {/* Food / Macros */}
+        <FoodSection currentUser={currentUser} partner={partner} />
 
         <div className="grid md:grid-cols-3 gap-8">
           <div className="md:col-span-2 space-y-8">

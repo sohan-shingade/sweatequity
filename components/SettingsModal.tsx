@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { User } from '../types';
-import { LogOut, UserMinus, X, ShieldAlert, Camera, Loader2, Save, Target } from 'lucide-react';
-import { backend } from '../services/backend';
+import { LogOut, UserMinus, X, ShieldAlert, Camera, Loader2, Save, Target, KeyRound, Copy, Check } from 'lucide-react';
+import { backend, getToken } from '../services/backend';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -23,6 +23,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [wager, setWager] = useState(currentUser.wagerAmount);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [tokenCopied, setTokenCopied] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -141,6 +142,34 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               </p>
               <p className="text-[10px] text-slate-500 mt-1">Click avatar to change</p>
             </div>
+          </div>
+
+          <div className="border-t border-slate-800 my-4"></div>
+
+          {/* Access Token */}
+          <div className="space-y-2">
+            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <KeyRound size={16} /> Access Token
+            </h3>
+            <p className="text-xs text-slate-500">
+              This is your only login credential. Copy it to sign in on another device — keep it private.
+            </p>
+            <button
+              onClick={() => {
+                const t = getToken();
+                if (t) {
+                  navigator.clipboard.writeText(t);
+                  setTokenCopied(true);
+                  setTimeout(() => setTokenCopied(false), 2000);
+                }
+              }}
+              className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg p-3 flex items-center justify-between transition-colors group"
+            >
+              <span className="font-mono text-xs text-slate-400 truncate">
+                {(getToken() || '').slice(0, 12)}••••••••••••
+              </span>
+              {tokenCopied ? <Check size={16} className="text-emerald-500 shrink-0" /> : <Copy size={16} className="text-slate-500 group-hover:text-emerald-400 shrink-0" />}
+            </button>
           </div>
 
           <div className="border-t border-slate-800 my-4"></div>

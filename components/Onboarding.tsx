@@ -24,6 +24,8 @@ const Onboarding: React.FC<OnboardingProps> = ({ initialStep, currentUser, onUpd
   // Partner State
   const [partnerCode, setPartnerCode] = useState('');
   const [isCopied, setIsCopied] = useState(false);
+  const [showTokenLogin, setShowTokenLogin] = useState(false);
+  const [loginToken, setLoginToken] = useState('');
 
   // Effect to pre-fill name if user exists but profile step is active
   useEffect(() => {
@@ -32,34 +34,44 @@ const Onboarding: React.FC<OnboardingProps> = ({ initialStep, currentUser, onUpd
     }
   }, [currentUser, step]);
 
-  // 1. Handle Sign In
-  const handleSignIn = async () => {
+  // 1. Handle Sign In / Sign Up
+  const routeAfterAuth = async (user: User) => {
+    onUpdateUser(user);
+    if (!user.name || user.goalDays === 0) {
+      setName(user.name || '');
+      setStep('PROFILE');
+    } else if (!user.partnerId) {
+      setStep('PARTNER');
+    } else {
+      const partner = await backend.getUserById(user.partnerId);
+      if (partner) onComplete(user, partner);
+      else setStep('PARTNER');
+    }
+  };
+
+  const handleSignUp = async () => {
+    if (!name.trim()) return;
     setIsLoading(true);
     setError('');
     try {
-      const user = await backend.signInWithGoogle();
-      onUpdateUser(user);
-      
-      // Determine next step
-      // If no goal set (0) or no name, go to profile.
-      // Even if Google provides a name, we want them to set their goal/wager.
-      if (!user.name || user.goalDays === 0) {
-        setName(user.name || '');
-        setStep('PROFILE');
-      } else if (!user.partnerId) {
-        setStep('PARTNER');
-      } else {
-        // Already fully set up
-        const partner = await backend.getUserById(user.partnerId);
-        if (partner) onComplete(user, partner);
-        else {
-          // Partner might be deleted or data corrupted
-          setStep('PARTNER'); 
-        }
-      }
+      const user = await backend.signUp(name);
+      await routeAfterAuth(user);
     } catch (e: any) {
-      console.error(e);
-      setError("Failed to sign in. " + e.message);
+      setError('Failed to sign up. ' + e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleTokenSignIn = async () => {
+    if (!loginToken.trim()) return;
+    setIsLoading(true);
+    setError('');
+    try {
+      const user = await backend.signInWithToken(loginToken);
+      await routeAfterAuth(user);
+    } catch (e: any) {
+      setError('Invalid token.');
     } finally {
       setIsLoading(false);
     }
@@ -179,23 +191,56 @@ const Onboarding: React.FC<OnboardingProps> = ({ initialStep, currentUser, onUpd
                 </p>
              </div>
              {error && <p className="text-rose-500 text-sm text-center bg-rose-950/30 p-2 rounded">{error}</p>}
-             <button 
-              onClick={handleSignIn}
-              disabled={isLoading}
-              className="w-full bg-white hover:bg-slate-200 text-slate-900 font-bold p-4 rounded-xl transition-all flex items-center justify-center gap-3 group relative overflow-hidden"
-            >
-              {isLoading ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <>
-                  <LogIn size={20} />
-                  <span>Sign in with Google</span>
-                </>
-              )}
-            </button>
-            <p className="text-xs text-center text-slate-500 mt-4">
-              Connect securely with Firebase
-            </p>
+             {!showTokenLogin ? (
+               <>
+                 <input
+                   type="text"
+                   value={name}
+                   onChange={(e) => setName(e.target.value)}
+                   onKeyDown={(e) => e.key === 'Enter' && handleSignUp()}
+                   placeholder="Your name"
+                   className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-lg placeholder:text-slate-600"
+                 />
+                 <button
+                  onClick={handleSignUp}
+                  disabled={isLoading || !name.trim()}
+                  className="w-full bg-white hover:bg-slate-200 disabled:opacity-50 text-slate-900 font-bold p-4 rounded-xl transition-all flex items-center justify-center gap-3 group relative overflow-hidden"
+                >
+                  {isLoading ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <>
+                      <LogIn size={20} />
+                      <span>Get Started</span>
+                    </>
+                  )}
+                </button>
+                <button onClick={() => { setShowTokenLogin(true); setError(''); }} className="w-full text-xs text-center text-slate-500 hover:text-slate-300 mt-4">
+                  Already have an account? Sign in with your token
+                </button>
+               </>
+             ) : (
+               <>
+                 <input
+                   type="password"
+                   value={loginToken}
+                   onChange={(e) => setLoginToken(e.target.value)}
+                   onKeyDown={(e) => e.key === 'Enter' && handleTokenSignIn()}
+                   placeholder="Paste your access token"
+                   className="w-full bg-slate-800 border border-slate-700 text-white p-4 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-mono text-sm placeholder:text-slate-600"
+                 />
+                 <button
+                  onClick={handleTokenSignIn}
+                  disabled={isLoading || !loginToken.trim()}
+                  className="w-full bg-white hover:bg-slate-200 disabled:opacity-50 text-slate-900 font-bold p-4 rounded-xl transition-all flex items-center justify-center gap-3"
+                >
+                  {isLoading ? <Loader2 className="animate-spin" /> : <><LogIn size={20} /><span>Sign In</span></>}
+                </button>
+                <button onClick={() => { setShowTokenLogin(false); setError(''); }} className="w-full text-xs text-center text-slate-500 hover:text-slate-300 mt-4">
+                  New here? Create an account
+                </button>
+               </>
+             )}
           </div>
         )}
 

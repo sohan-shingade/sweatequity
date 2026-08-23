@@ -1,19 +1,16 @@
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig(({ mode }) => {
-  // Load env file based on `mode` in the current working directory.
-  // Set the third parameter to '' to load all env regardless of the `VITE_` prefix.
-  const env = loadEnv(mode, '.', '');
-
-  return {
-    plugins: [react()],
-    define: {
-      // This allows the code to use process.env.API_KEY as required by the Gemini SDK
-      'process.env.API_KEY': JSON.stringify(env.API_KEY),
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    outDir: 'dist',
+  },
+  server: {
+    // Dev: forward API + photos to the local backend (server/index.mjs).
+    proxy: {
+      '/api': 'http://localhost:8790',
+      '/photos': 'http://localhost:8790',
     },
-    build: {
-      outDir: 'dist',
-    }
-  };
+  },
 });
