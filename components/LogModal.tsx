@@ -106,11 +106,11 @@ const LogModal: React.FC<LogModalProps> = ({ isOpen, onClose, currentUser, onSub
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl p-6 shadow-2xl max-h-[95vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-white">{initialData ? 'Edit Workout' : 'Log Workout'}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm sm:p-4">
+      <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl max-h-[90vh] overflow-y-auto animate-slideUp">
+        <div className="flex justify-between items-center mb-5">
+          <h2 className="text-lg font-bold text-white">{initialData ? 'Edit Workout' : 'Log Workout'}</h2>
+          <button onClick={onClose} className="p-1 -mr-1 text-slate-400 active:text-white">
             <X size={24} />
           </button>
         </div>

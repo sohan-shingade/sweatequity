@@ -123,14 +123,14 @@ const FoodModal: React.FC<FoodModalProps> = ({ isOpen, onClose, editingEntry }) 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm sm:p-4">
+      <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl overflow-y-auto max-h-[90vh] animate-slideUp">
+        <div className="flex justify-between items-center mb-5">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <UtensilsCrossed size={20} className="text-emerald-400" />
             {entry ? 'Review Meal' : 'Log a Meal'}
           </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={24} /></button>
+          <button onClick={onClose} className="p-1 -mr-1 text-slate-400 active:text-white"><X size={24} /></button>
         </div>
 
         {!entry ? (
@@ -225,9 +225,15 @@ const FoodModal: React.FC<FoodModalProps> = ({ isOpen, onClose, editingEntry }) 
   );
 };
 
-const FoodSection = ({ currentUser, partner }: { currentUser: User; partner: User }) => {
+interface FoodSectionProps {
+  currentUser: User;
+  partner: User;
+  isModalOpen: boolean;
+  setIsModalOpen: (open: boolean) => void;
+}
+
+const FoodSection = ({ currentUser, partner, isModalOpen, setIsModalOpen }: FoodSectionProps) => {
   const [entries, setEntries] = useState<FoodLog[]>([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<FoodLog | null>(null);
   const today = todayStr();
 
@@ -238,21 +244,21 @@ const FoodSection = ({ currentUser, partner }: { currentUser: User; partner: Use
   };
 
   return (
-    <section className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-bold text-white flex items-center gap-2">
-          <UtensilsCrossed size={18} className="text-emerald-400" /> Fuel Log
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="font-bold text-white flex items-center gap-2 text-sm">
+          <UtensilsCrossed size={16} className="text-emerald-400" /> Fuel Log
           <span className="text-xs text-slate-500 font-normal">today</span>
-        </h3>
+        </h2>
         <button
           onClick={() => { setEditingEntry(null); setIsModalOpen(true); }}
-          className="flex items-center gap-1.5 bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-white text-sm font-bold px-3 py-1.5 rounded-lg transition-all"
+          className="flex items-center gap-1.5 bg-emerald-500/20 text-emerald-400 active:bg-emerald-500 active:text-white text-sm font-bold px-3 py-2 rounded-xl transition-all"
         >
           <Plus size={16} /> Log Meal
         </button>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-3 mb-4">
+      <div className="space-y-2">
         <Totals label="You" avatar={currentUser.avatar} entries={entries.filter(e => e.userId === currentUser.id)} />
         <Totals label={partner.name} avatar={partner.avatar} entries={entries.filter(e => e.userId === partner.id)} />
       </div>
@@ -261,12 +267,12 @@ const FoodSection = ({ currentUser, partner }: { currentUser: User; partner: Use
         {entries.map((entry) => {
           const isMe = entry.userId === currentUser.id;
           return (
-            <div key={entry.id} className="flex items-center gap-3 bg-slate-800/30 rounded-xl p-3 border border-slate-800">
+            <div key={entry.id} className="flex items-center gap-3 bg-slate-900 rounded-2xl p-3 border border-slate-800">
               {entry.photoUrl ? (
-                <img src={entry.photoUrl} className="w-12 h-12 rounded-lg object-cover shrink-0" />
+                <img src={entry.photoUrl} className="w-14 h-14 rounded-xl object-cover shrink-0" />
               ) : (
-                <div className="w-12 h-12 rounded-lg bg-slate-800 flex items-center justify-center shrink-0 text-slate-600">
-                  <UtensilsCrossed size={18} />
+                <div className="w-14 h-14 rounded-xl bg-slate-800 flex items-center justify-center shrink-0 text-slate-600">
+                  <UtensilsCrossed size={20} />
                 </div>
               )}
               <div className="min-w-0 flex-1">
@@ -282,19 +288,24 @@ const FoodSection = ({ currentUser, partner }: { currentUser: User; partner: Use
                 </p>
               </div>
               {isMe && (
-                <div className="flex items-center gap-1 opacity-50 hover:opacity-100 transition-opacity shrink-0">
-                  <button onClick={() => { setEditingEntry(entry); setIsModalOpen(true); }} className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-emerald-400"><Pencil size={14} /></button>
-                  <button onClick={() => handleDelete(entry.id)} className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-rose-400"><Trash2 size={14} /></button>
+                <div className="flex items-center shrink-0">
+                  <button onClick={() => { setEditingEntry(entry); setIsModalOpen(true); }} className="p-2 text-slate-500 active:text-emerald-400"><Pencil size={15} /></button>
+                  <button onClick={() => handleDelete(entry.id)} className="p-2 -mr-1 text-slate-500 active:text-rose-400"><Trash2 size={15} /></button>
                 </div>
               )}
             </div>
           );
         })}
-        {entries.length === 0 && <div className="text-center text-slate-500 text-sm py-4">Nothing logged today.</div>}
+        {entries.length === 0 && (
+          <div className="text-center text-slate-500 text-sm py-8 border-2 border-dashed border-slate-800 rounded-2xl">
+            Nothing logged today.<br />
+            <span className="text-xs text-slate-600">Snap a photo — Claude estimates the macros.</span>
+          </div>
+        )}
       </div>
 
-      <FoodModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} editingEntry={editingEntry} />
-    </section>
+      <FoodModal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setEditingEntry(null); }} editingEntry={editingEntry} />
+    </div>
   );
 };
 
