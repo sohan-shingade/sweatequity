@@ -1,5 +1,6 @@
 import React from 'react';
 import { WeeklySummary } from '../types';
+import { displayDate } from '../lib/dates';
 import { X, Trophy, TrendingDown, DollarSign, CheckCircle2, ChevronRight } from 'lucide-react';
 
 interface SummaryModalProps {
@@ -29,8 +30,8 @@ const SummaryModal: React.FC<SummaryModalProps> = ({ summary, isOpen, onClose })
           </div>
           <h2 className="text-3xl font-extrabold text-white mb-2">Last Week's Results</h2>
           <p className="text-slate-400 font-medium">
-            {new Date(summary.weekStarting).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - 
-            {new Date(summary.weekEnding).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+            {displayDate(summary.weekStarting)} - 
+            {displayDate(summary.weekEnding)}
           </p>
         </div>
 

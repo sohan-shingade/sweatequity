@@ -1,34 +1,27 @@
 import React from 'react';
 import { WorkoutLog } from '../types';
+import { formatDate } from '../lib/dates';
 
 interface HeatmapProps {
   logs: WorkoutLog[];
   userId: string;
-  year: number;
 }
 
-const Heatmap: React.FC<HeatmapProps> = ({ logs, userId, year }) => {
-  // Generate simplified grid of days
-  // In a real app, use a library like 'react-calendar-heatmap' or strict D3
-  // Here we simulate the grid with CSS grid for visual effect
-  
+const DAYS_SHOWN = 90;
+
+const Heatmap: React.FC<HeatmapProps> = ({ logs, userId }) => {
   const userLogs = new Set(
     logs
       .filter(l => l.userId === userId)
       .map(l => l.date)
   );
 
-  const days = Array.from({ length: 90 }, (_, i) => {
+  const days = Array.from({ length: DAYS_SHOWN }, (_, i) => {
     const d = new Date();
-    d.setDate(d.getDate() - (89 - i)); // Last 90 days
-    return {
-      date: d.toISOString().split('T')[0],
-      active: false // calculated below
-    };
-  }).map(day => ({
-    ...day,
-    active: userLogs.has(day.date)
-  }));
+    d.setDate(d.getDate() - (DAYS_SHOWN - 1 - i));
+    const date = formatDate(d);
+    return { date, active: userLogs.has(date) };
+  });
 
   return (
     <div className="flex flex-col gap-1">
@@ -42,8 +35,8 @@ const Heatmap: React.FC<HeatmapProps> = ({ logs, userId, year }) => {
             key={day.date}
             title={day.date}
             className={`w-3 h-3 rounded-sm transition-colors ${
-              day.active 
-                ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' 
+              day.active
+                ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]'
                 : 'bg-slate-800'
             }`}
           />

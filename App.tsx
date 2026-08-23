@@ -14,9 +14,7 @@ import {
   PieChart as PieChartIcon,
   X,
   Maximize2,
-  History,
-  TrendingDown,
-  CheckCircle2
+  History
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -32,6 +30,7 @@ import {
 
 import { backend } from './services/backend';
 import { User, WorkoutLog, WeekState, OnboardingStep, WeeklySummary } from './types';
+import { formatDate, todayStr, getStartOfWeek, addDays, displayDate } from './lib/dates';
 import Heatmap from './components/Heatmap';
 import LogModal from './components/LogModal';
 import Onboarding from './components/Onboarding';
@@ -41,16 +40,15 @@ import HistoryModal from './components/HistoryModal';
 
 // --- Helpers ---
 
-const getStartOfWeek = (d: Date) => {
-  const date = new Date(d);
-  const day = date.getDay();
-  const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Monday start
-  return new Date(date.setDate(diff));
-};
+interface StatCardProps {
+  title: string;
+  value: string | number;
+  subtext?: string;
+  icon: React.ComponentType<{ size?: number }>;
+  colorClass?: string;
+}
 
-const formatDate = (date: Date) => date.toISOString().split('T')[0];
-
-const StatCard = ({ title, value, subtext, icon: Icon, colorClass }: any) => (
+const StatCard = ({ title, value, subtext, icon: Icon, colorClass }: StatCardProps) => (
   <div className="bg-slate-800/50 border border-slate-700/50 p-4 rounded-xl flex items-start justify-between backdrop-blur-sm">
     <div>
       <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">{title}</p>
@@ -161,33 +159,26 @@ function App() {
     const checkWeeklyReset = async () => {
       if (appState !== 'COMPLETED' || !currentUser || !partner || logs.length === 0) return;
 
-      const now = new Date();
-      const currentWeekStart = getStartOfWeek(now);
-      const lastResetStr = currentUser.lastResetDate || formatDate(new Date(0));
-      const lastResetDate = new Date(lastResetStr);
+      const currentWeekStartStr = formatDate(getStartOfWeek(new Date()));
+      const lastResetStr = (currentUser.lastResetDate || '1970-01-01').slice(0, 10);
 
       // Check if we have entered a new week since the last recorded reset
-      if (currentWeekStart > lastResetDate) {
-        console.log("Detecting new week transition...");
-        
-        // 1. Calculate the START of the PREVIOUS week
-        const lastWeekStart = new Date(currentWeekStart);
-        lastWeekStart.setDate(lastWeekStart.getDate() - 7);
-        const lastWeekEnd = new Date(currentWeekStart);
-        lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
+      if (currentWeekStartStr > lastResetStr) {
+        // 1. Range of the PREVIOUS week: [start - 7 days, start)
+        const lastWeekStartStr = addDays(currentWeekStartStr, -7);
+        const lastWeekEndStr = addDays(currentWeekStartStr, -1);
 
-        const lastWeekLogs = logs.filter(l => {
-          const logDate = new Date(l.date);
-          return logDate >= lastWeekStart && logDate <= lastWeekEnd;
-        });
+        const lastWeekLogs = logs.filter(l =>
+          l.date >= lastWeekStartStr && l.date <= lastWeekEndStr
+        );
 
         const u1Logs = lastWeekLogs.filter(l => l.userId === currentUser.id).length;
         const u2Logs = lastWeekLogs.filter(l => l.userId === partner.id).length;
 
         const summary: WeeklySummary = {
-          id: `sum-${formatDate(lastWeekStart)}`,
-          weekStarting: formatDate(lastWeekStart),
-          weekEnding: formatDate(lastWeekEnd),
+          id: `sum-${lastWeekStartStr}`,
+          weekStarting: lastWeekStartStr,
+          weekEnding: lastWeekEndStr,
           participantIds: [currentUser.id, partner.id],
           stats: {
             [currentUser.id]: {
@@ -211,13 +202,13 @@ function App() {
 
         // 2. Save history and update user's last reset timestamp
         await backend.saveWeeklySummary(summary);
-        await backend.updateLastResetDate(currentUser.id, formatDate(currentWeekStart));
-        
+        await backend.updateLastResetDate(currentUser.id, currentWeekStartStr);
+
         // 3. Trigger popup
         setPendingSummary(summary);
-        
+
         // 4. Update UI current week start
-        setWeekState(prev => ({ ...prev, startDate: formatDate(currentWeekStart) }));
+        setWeekState(prev => ({ ...prev, startDate: currentWeekStartStr }));
       }
     };
 
@@ -237,7 +228,7 @@ function App() {
       await backend.addLog({
         id: Date.now().toString(),
         userId: currentUser.id,
-        date: date || formatDate(new Date()),
+        date: date || todayStr(),
         activity, subType, durationMinutes: duration, photoUrl, verified: true
       });
     }
@@ -257,13 +248,12 @@ function App() {
   // --- Derived State ---
 
   const currentWeekLogs = useMemo(() => {
-    const start = new Date(weekState.startDate);
-    return logs.filter(l => new Date(l.date) >= start);
+    return logs.filter(l => l.date >= weekState.startDate);
   }, [logs, weekState.startDate]);
 
   const hasLoggedToday = useMemo(() => {
     if (!currentUser) return false;
-    const today = formatDate(new Date());
+    const today = todayStr();
     return logs.some(l => l.userId === currentUser.id && l.date === today);
   }, [logs, currentUser]);
 
@@ -272,20 +262,54 @@ function App() {
     const userLogs = currentWeekLogs.filter(l => l.userId === currentUser.id);
     const count = userLogs.length;
     const goal = currentUser.goalDays;
-    // Calculation of debt for the CURRENT week (clean slate reset logic)
-    // We only calculate debt based on MISSES that have already happened relative to the goal.
-    const debt = Math.max(0, (goal - count) * weekState.wagerAmount);
+    const debt = Math.max(0, (goal - count) * currentUser.wagerAmount);
     return { count, goal, debt, logs: userLogs };
-  }, [currentWeekLogs, currentUser, weekState]);
+  }, [currentWeekLogs, currentUser]);
 
   const user2Stats = useMemo(() => {
     if (!partner) return null;
     const userLogs = currentWeekLogs.filter(l => l.userId === partner.id);
     const count = userLogs.length;
     const goal = partner.goalDays;
-    const debt = Math.max(0, (goal - count) * weekState.wagerAmount);
+    const debt = Math.max(0, (goal - count) * partner.wagerAmount);
     return { count, goal, debt, logs: userLogs };
-  }, [currentWeekLogs, partner, weekState]);
+  }, [currentWeekLogs, partner]);
+
+  // Current streak: consecutive days with a log, counting back from today
+  // (today itself doesn't break the streak if not yet logged).
+  const streak = useMemo(() => {
+    if (!currentUser) return 0;
+    const days = new Set(logs.filter(l => l.userId === currentUser.id).map(l => l.date));
+    let count = 0;
+    let day = todayStr();
+    if (!days.has(day)) day = addDays(day, -1); // grace for today
+    while (days.has(day)) {
+      count++;
+      day = addDays(day, -1);
+    }
+    return count;
+  }, [logs, currentUser]);
+
+  const weeklyMinutes = useMemo(() => {
+    if (!currentUser) return 0;
+    return currentWeekLogs
+      .filter(l => l.userId === currentUser.id)
+      .reduce((sum, l) => sum + l.durationMinutes, 0);
+  }, [currentWeekLogs, currentUser]);
+
+  // Minutes per weekday for the current week, both users
+  const volumeData = useMemo(() => {
+    const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return labels.map((name, i) => {
+      const dayStr = addDays(weekState.startDate, i);
+      const dayLogs = currentWeekLogs.filter(l => l.date === dayStr);
+      return {
+        name,
+        u1: dayLogs.filter(l => l.userId === currentUser?.id).reduce((s, l) => s + l.durationMinutes, 0),
+        u2: dayLogs.filter(l => l.userId === partner?.id).reduce((s, l) => s + l.durationMinutes, 0),
+      };
+    });
+  }, [currentWeekLogs, weekState.startDate, currentUser, partner]);
 
   const activityData = useMemo(() => {
     const counts: {[key: string]: number} = {};
@@ -377,7 +401,7 @@ function App() {
                 Weekly Arena
               </h2>
               <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mt-1">
-                Week of {new Date(weekState.startDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                Week of {displayDate(weekState.startDate)}
               </p>
             </div>
             <div className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1 text-sm font-mono text-emerald-400">
@@ -457,9 +481,9 @@ function App() {
         {/* Global Stats Grid */}
         <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard title="Total Workouts" value={logs.filter(l => l.userId === currentUser.id).length} icon={Activity} colorClass="text-blue-400" subtext="Your total" />
-          <StatCard title="Pot Size" value={`$${weekState.wagerAmount * 2}`} icon={TrendingUp} colorClass="text-emerald-400" subtext="Weekly risk" />
-          <StatCard title="Misses Saved" value={logs.length > 5 ? 2 : 0} icon={Bell} colorClass="text-orange-400" subtext="Lifetime" />
-          <StatCard title="Streak" value="3 Days" icon={Flame} colorClass="text-rose-400" subtext="Current streak" />
+          <StatCard title="At Risk" value={`$${user1Stats.goal * currentUser.wagerAmount + user2Stats.goal * partner.wagerAmount}`} icon={TrendingUp} colorClass="text-emerald-400" subtext="Max this week" />
+          <StatCard title="This Week" value={`${weeklyMinutes}m`} icon={Bell} colorClass="text-orange-400" subtext="Your minutes" />
+          <StatCard title="Streak" value={`${streak} ${streak === 1 ? 'Day' : 'Days'}`} icon={Flame} colorClass="text-rose-400" subtext="Current streak" />
         </section>
 
         <div className="grid md:grid-cols-3 gap-8">
@@ -474,14 +498,14 @@ function App() {
                        <img src={currentUser.avatar} className="w-5 h-5 rounded-full object-cover" />
                        <span className="text-sm text-slate-300">You</span>
                     </div>
-                    <Heatmap logs={logs} userId={currentUser.id} year={2024} />
+                    <Heatmap logs={logs} userId={currentUser.id} />
                   </div>
                   <div>
                     <div className="flex items-center gap-2 mb-2">
                        <img src={partner.avatar} className="w-5 h-5 rounded-full object-cover" />
                        <span className="text-sm text-slate-300">{partner.name}</span>
                     </div>
-                    <Heatmap logs={logs} userId={partner.id} year={2024} />
+                    <Heatmap logs={logs} userId={partner.id} />
                   </div>
                 </div>
              </div>
@@ -490,11 +514,7 @@ function App() {
                <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl h-80">
                   <h3 className="text-lg font-bold text-white mb-4">Volume</h3>
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={[
-                      { name: 'Mon', u1: 30, u2: 45 }, { name: 'Tue', u1: 60, u2: 0 }, { name: 'Wed', u1: 45, u2: 30 },
-                      { name: 'Thu', u1: 0, u2: 60 }, { name: 'Fri', u1: 30, u2: 30 }, { name: 'Sat', u1: 90, u2: 90 },
-                      { name: 'Sun', u1: 0, u2: 0 },
-                    ]}>
+                    <BarChart data={volumeData}>
                       <XAxis dataKey="name" stroke="#475569" fontSize={10} tickLine={false} axisLine={false} />
                       <YAxis stroke="#475569" fontSize={10} tickLine={false} axisLine={false} />
                       <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }} itemStyle={{ color: '#e2e8f0' }} />
@@ -532,7 +552,7 @@ function App() {
                       <div>
                         <div className="flex items-center gap-2 mb-1">
                           <span className="font-bold text-slate-200 text-sm">{isMe ? 'You' : user.name}</span>
-                          <span className="text-slate-500 text-xs">• {new Date(log.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                          <span className="text-slate-500 text-xs">• {displayDate(log.date, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
                         </div>
                         <p className="text-sm text-slate-400 mb-2">
                           Did <span className="text-emerald-400 font-medium">{log.activity}</span>

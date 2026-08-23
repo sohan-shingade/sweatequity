@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, OnboardingStep } from '../types';
 import { backend } from '../services/backend';
-import { getMockPartner } from '../services/mockData'; // Fallback if needed
 import { ArrowRight, Copy, Check, Users, Dumbbell, DollarSign, LogIn, Loader2, LogOut } from 'lucide-react';
 
 interface OnboardingProps {
@@ -97,20 +96,12 @@ const Onboarding: React.FC<OnboardingProps> = ({ initialStep, currentUser, onUpd
     setError('');
     
     try {
-      // Use the mock partner if the code is the special mock code, otherwise check backend
-      let result;
-      
-      // This allows the demo to still work with the 'JRD-77' hardcoded value if user desires,
       const foundUser = await backend.findUserByCode(partnerCode);
-      
+
       if (foundUser) {
-        result = await backend.linkPartners(currentUser.id, partnerCode);
+        const result = await backend.linkPartners(currentUser.id, partnerCode);
         onUpdateUser(result.user);
         onComplete(result.user, result.partner);
-      } else if (partnerCode === 'JRD-77') {
-         // Fallback for Demo purposes if no real user found
-         const mockPartner = getMockPartner('JRD-77');
-         onComplete(currentUser, mockPartner);
       } else {
         setError("Partner code not found. Check the code and try again.");
       }

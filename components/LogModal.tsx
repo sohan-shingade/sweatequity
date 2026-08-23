@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { User, WorkoutLog } from '../types';
+import { todayStr } from '../lib/dates';
 import { X, Upload, Camera, Image as ImageIcon, Trash2, Calendar } from 'lucide-react';
 
 interface LogModalProps {
@@ -14,7 +15,7 @@ const LogModal: React.FC<LogModalProps> = ({ isOpen, onClose, currentUser, onSub
   const [activity, setActivity] = useState('Running');
   const [subType, setSubType] = useState('');
   const [duration, setDuration] = useState(45);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(todayStr());
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -32,7 +33,7 @@ const LogModal: React.FC<LogModalProps> = ({ isOpen, onClose, currentUser, onSub
         setActivity('Running');
         setSubType('');
         setDuration(45);
-        setDate(new Date().toISOString().split('T')[0]);
+        setDate(todayStr());
         setPreviewUrl(null);
       }
     }

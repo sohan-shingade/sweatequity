@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { User, WeeklySummary } from '../types';
+import { displayDate } from '../lib/dates';
 import { backend } from '../services/backend';
-import { X, Calendar, DollarSign, History, ChevronRight, Loader2, Trophy } from 'lucide-react';
+import { X, Calendar, History, Loader2, Trophy } from 'lucide-react';
 
 interface HistoryModalProps {
   isOpen: boolean;
@@ -53,7 +54,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, currentUse
               const uids = Object.keys(sum.stats);
               const me = sum.stats[currentUser.id];
               const partner = sum.stats[uids.find(id => id !== currentUser.id) || ''];
-              const dateRange = `${new Date(sum.weekStarting).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${new Date(sum.weekEnding).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+              const dateRange = `${displayDate(sum.weekStarting)} - ${displayDate(sum.weekEnding)}`;
               
               return (
                 <div key={sum.id} className="bg-slate-800/40 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
